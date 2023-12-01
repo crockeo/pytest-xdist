@@ -61,7 +61,7 @@ class NodeManager:
         self._rsynced_specs: Set[Tuple[Any, Any]] = set()
         self.log = Producer(f"node-manager", enabled=config.option.debug)
 
-        buckets: list[list[str]] = json.loads(open(f"{os.environ['TEST_DIR']}/bins.json").read())
+        buckets: List[List[str]] = json.loads(open(f"{os.environ['TEST_DIR']}/bins.json").read())
 
         all_tests = [
             test
@@ -86,7 +86,7 @@ class NodeManager:
         for test in all_tests:
             if test not in bucketed_tests:
                 new_tests.append(test)
-        self.new_tests = new_tests
+        self.new_tests = set(new_tests)
 
         self.log("Adding", self.new_tests)
         for new_test in self.new_tests:
@@ -113,23 +113,37 @@ class NodeManager:
             for root in self.roots:
                 self.rsync(gateway, root, **self.rsyncoptions)
 
-    def setup_nodes(self, putevent):
-        start_time = time.time()
+    def setup_nodes(self, putevent) -> List["WorkerController"]:
+        start_time = time.perf_counter()
         self.config.hook.pytest_xdist_setupnodes(config=self.config, specs=self.specs)
         self.trace("setting up nodes")
-        to_return = [
-            self.setup_node(spec, putevent, self.buckets[i])
-            for i, spec in enumerate(self.specs)
-        ]
-        end_time = time.time()
-        self.log("setup_nodes", end_time - start_time)
-        return to_return
 
-    def setup_node(self, spec, putevent, path):
+        nodes: List[WorkerController] = []
+        for i, spec in enumerate(self.specs):
+            bucket = self.buckets[i]
+            new_tests_from_bucket = [
+                test
+                for test in bucket
+                if test in self.new_tests
+            ]
+            nodes.append(
+                self.setup_node(
+                    spec,
+                    putevent,
+                    self.buckets[i],
+                    new_tests_from_bucket,
+                )
+            )
+
+        end_time = time.perf_counter()
+        self.log("setup_nodes", end_time - start_time)
+        return nodes
+
+    def setup_node(self, spec, putevent, path, new_tests: List[str]) -> "WorkerController":
         gw = self.group.makegateway(spec)
         self.config.hook.pytest_xdist_newgateway(gateway=gw)
         self.rsync_roots(gw)
-        node = WorkerController(self, gw, self.config, putevent, path)
+        node = WorkerController(self, gw, self.config, putevent, path, new_tests)
         gw.node = node  # keep the node alive
         node.setup()
         self.trace("started node %r" % node)
@@ -290,13 +304,14 @@ class WorkerController:
         def pytest_xdist_getremotemodule(self):
             return xdist.remote
 
-    def __init__(self, nodemanager, gateway, config, putevent, path):
+    def __init__(self, nodemanager, gateway, config, putevent, path, new_tests: List[str]):
         config.pluginmanager.register(self.RemoteHook())
         self.nodemanager = nodemanager
         self.putevent = putevent
         self.gateway = gateway
         self.config = config
         self.path = path
+        self.new_tests = new_tests
         argv = [i for i in sys.argv]
         del argv[1]
         for path in self.path.split(","):
