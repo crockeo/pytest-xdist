@@ -60,54 +60,52 @@ class NodeManager:
         self.rsyncoptions = self._getrsyncoptions()
         self._rsynced_specs: Set[Tuple[Any, Any]] = set()
         self.log = Producer(f"node-manager", enabled=config.option.debug)
-        # paths = [
-        #     ["tests/test_accounting/test_workflows"],
-        #     ["tests/test_workflows"],
-        #     ["tests/test_bill_pay/test_autofilling.py"],
-        # ]
-        #paths = json.loads(open(f"bins.json").read())
-        paths = json.loads(open(f"{os.environ['TEST_DIR']}/bins.json").read())
 
-        complete_tests = glob.glob("tests/**/*.py", recursive=True)
-        complete_tests = [c for c in complete_tests if ".pyc" not in c]
-        complete_tests = [c for c in complete_tests if "__pycache__" not in c]
-        complete_tests = [c for c in complete_tests if "__init__.py" not in c]
-        complete_tests = [c for c in complete_tests if "conftest.py" not in c]
-        complete_tests = [c for c in complete_tests if "tests/incremental" not in c]
+        buckets: list[list[str]] = json.loads(open(f"{os.environ['TEST_DIR']}/bins.json").read())
+
+        all_tests = [
+            test
+            for test in glob.glob("tests/**/*.py", recursive=True)
+            if not any(
+                sentinel in test
+                for sentinel in [
+                    ".pyc",
+                    "__pycache__",
+                    "__init__.py",
+                    "conftest.py",
+                    "tests/incremental",
+                ]
+            )
+        ]
+
+        bucketed_tests: set[str] = set()
+        for bucket in buckets:
+            bucketed_tests.update(bucket)
 
         new_tests = []
-        for test in complete_tests:
-            found = False
-            for bucket in paths:
-                if test in bucket:
-                    found = True
-
-            if not found:
+        for test in all_tests:
+            if test not in bucketed_tests:
                 new_tests.append(test)
+        self.new_tests = new_tests
 
-        while new_tests:
-            new_test = new_tests.pop()
-
+        self.log("Adding", self.new_tests)
+        for new_test in self.new_tests:
             current_min_index = -1
             current_min_count = -1
 
-            for i, bucket in enumerate(paths):
+            for i, bucket in enumerate(buckets):
                 count = len(bucket)
                 if current_min_count == -1 or count < current_min_count:
                     current_min_index = i
                     current_min_count = count
 
-            paths[current_min_index].append(new_test)
+            buckets[current_min_index].append(new_test)
 
-        self.log("Adding", new_tests)
+        for i in range(len(buckets)):
+            bucket = buckets[i]
+            buckets[i] = [test for test in bucket if test in all_tests or '__init__.py' in test]
 
-        for i in range(len(paths)):
-            bucket = paths[i]
-            paths[i] = [test for test in bucket if test in complete_tests or '__init__.py' in test]
-
-        # paths[0] += new_tests
-
-        self.paths = [",".join(path) for path in paths]
+        self.buckets = [",".join(path) for path in buckets]
 
     def rsync_roots(self, gateway):
         """Rsync the set of roots to the node's gateway cwd."""
@@ -120,7 +118,7 @@ class NodeManager:
         self.config.hook.pytest_xdist_setupnodes(config=self.config, specs=self.specs)
         self.trace("setting up nodes")
         to_return = [
-            self.setup_node(spec, putevent, self.paths[i])
+            self.setup_node(spec, putevent, self.buckets[i])
             for i, spec in enumerate(self.specs)
         ]
         end_time = time.time()
