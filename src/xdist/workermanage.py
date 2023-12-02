@@ -67,7 +67,7 @@ class NodeManager:
         self.rsyncoptions = self._getrsyncoptions()
         self._rsynced_specs: Set[Tuple[Any, Any]] = set()
         self.log = Producer(f"node-manager", enabled=config.option.debug)
-        self.bins = bins
+        self.paths = [",".join(bin) for bin in bins]
 
     def rsync_roots(self, gateway):
         """Rsync the set of roots to the node's gateway cwd."""
@@ -75,23 +75,19 @@ class NodeManager:
             for root in self.roots:
                 self.rsync(gateway, root, **self.rsyncoptions)
 
-    def setup_nodes(self, putevent) -> List["WorkerController"]:
-        start_time = time.perf_counter()
+    def setup_nodes(self, putevent):
+        start_time = time.time()
         self.config.hook.pytest_xdist_setupnodes(config=self.config, specs=self.specs)
         self.trace("setting up nodes")
-        nodes: List[WorkerController] = [
-            self.setup_node(
-                spec,
-                putevent,
-                ",".join(self.buckets[i]),
-            )
+        to_return = [
+            self.setup_node(spec, putevent, self.paths[i])
             for i, spec in enumerate(self.specs)
         ]
-        end_time = time.perf_counter()
+        end_time = time.time()
         self.log("setup_nodes", end_time - start_time)
-        return nodes
+        return to_return
 
-    def setup_node(self, spec, putevent, path) -> "WorkerController":
+    def setup_node(self, spec, putevent, path):
         gw = self.group.makegateway(spec)
         self.config.hook.pytest_xdist_newgateway(gateway=gw)
         self.rsync_roots(gw)

@@ -11,7 +11,6 @@ import sys
 import os
 import time
 from typing import Any
-from typing import List
 
 import pytest
 from execnet.gateway_base import dumps, DumpError

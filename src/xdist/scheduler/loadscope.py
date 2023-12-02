@@ -3,7 +3,6 @@ import re
 import csv
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
-import sys
 from typing import List
 
 from _pytest.runner import CollectReport
