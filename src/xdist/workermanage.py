@@ -360,7 +360,7 @@ class WorkerController:
         for path in self.path.split(","):
             args.insert(0, path)
 
-        self.channel.send((self.workerinput, args, option_dict, change_sys_path))
+        self.channel.send((self.workerinput, args, option_dict, change_sys_path, self.new_tests))
 
         if self.putevent:
             self.channel.setcallback(self.process_from_remote, endmarker=self.ENDMARK)

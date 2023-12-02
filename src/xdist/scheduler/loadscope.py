@@ -283,6 +283,10 @@ class LoadScopeScheduling:
         node.send_runtest_some(nodeids_indexes)
 
     def handle_failed_test(self, node, rep):
+        if rep.nodeid in self.config.new_tests:
+            print(f"Failing test {rep.nodeid} immediately because it is a new test.")
+            return True
+
         if rep.nodeid not in self.retries:
             self.retries[rep.nodeid] = RetryInfo(
                 retry_count=0,
