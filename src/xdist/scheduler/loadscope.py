@@ -3,6 +3,7 @@ import re
 import csv
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
+from traceback import print_stack
 
 from _pytest.runner import CollectReport
 from _pytest.reports import TestReport
@@ -99,6 +100,9 @@ class LoadScopeScheduling:
     RETRIES_MODULE_AND_TEST_REGEX = re.compile('([^:]+)::(.+)')
 
     def __init__(self, config, log=None):
+        print("<<< __init__")
+        print_stack()
+
         self.numnodes = len(parse_spec_config(config))
         self.collection = None
 
@@ -283,6 +287,8 @@ class LoadScopeScheduling:
         node.send_runtest_some(nodeids_indexes)
 
     def handle_failed_test(self, node, rep):
+        print("<<< handle_failed_test")
+        print_stack()
         if rep.nodeid in self.config.new_tests:
             print(f"Failing test {rep.nodeid} immediately because it is a new test.")
             return True
