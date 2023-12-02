@@ -101,11 +101,14 @@ class NodeManager:
 
             buckets[current_min_index].append(new_test)
 
-        for i in range(len(buckets)):
-            bucket = buckets[i]
-            buckets[i] = [test for test in bucket if test in all_tests or '__init__.py' in test]
+        for i, bucket in enumerate(buckets):
+            buckets[i] = [
+                test
+                for test in bucket
+                if test in all_tests or '__init__.py' in test
+            ]
 
-        self.buckets = [",".join(path) for path in buckets]
+        self.buckets = buckets
 
     def rsync_roots(self, gateway):
         """Rsync the set of roots to the node's gateway cwd."""
@@ -130,7 +133,7 @@ class NodeManager:
                 self.setup_node(
                     spec,
                     putevent,
-                    self.buckets[i],
+                    ",".join(self.buckets[i]),
                     new_tests_from_bucket,
                 )
             )
