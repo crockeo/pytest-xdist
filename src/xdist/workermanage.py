@@ -39,7 +39,14 @@ class NodeManager:
     EXIT_TIMEOUT = 10
     DEFAULT_IGNORES = [".*", "*.pyc", "*.pyo", "*~"]
 
-    def __init__(self, config, specs=None, defaultchdir="pyexecnetcache") -> None:
+    def __init__(
+        self,
+        config,
+        specs=None,
+        defaultchdir="pyexecnetcache",
+        *,
+        bins: List[List[str]],
+    ) -> None:
         self.config = config
         self.trace = self.config.trace.get("nodemanager")
         self.testrunuid = self.config.getoption("testrunuid")
@@ -60,55 +67,7 @@ class NodeManager:
         self.rsyncoptions = self._getrsyncoptions()
         self._rsynced_specs: Set[Tuple[Any, Any]] = set()
         self.log = Producer(f"node-manager", enabled=config.option.debug)
-
-        buckets: List[List[str]] = json.loads(open(f"{os.environ['TEST_DIR']}/bins.json").read())
-
-        all_tests = [
-            test
-            for test in glob.glob("tests/**/*.py", recursive=True)
-            if not any(
-                sentinel in test
-                for sentinel in [
-                    ".pyc",
-                    "__pycache__",
-                    "__init__.py",
-                    "conftest.py",
-                    "tests/incremental",
-                ]
-            )
-        ]
-
-        bucketed_tests: set[str] = set()
-        for bucket in buckets:
-            bucketed_tests.update(bucket)
-
-        new_tests = []
-        for test in all_tests:
-            if test not in bucketed_tests:
-                new_tests.append(test)
-        self.new_tests = set(new_tests)
-
-        self.log("Adding", self.new_tests)
-        for new_test in self.new_tests:
-            current_min_index = -1
-            current_min_count = -1
-
-            for i, bucket in enumerate(buckets):
-                count = len(bucket)
-                if current_min_count == -1 or count < current_min_count:
-                    current_min_index = i
-                    current_min_count = count
-
-            buckets[current_min_index].append(new_test)
-
-        for i, bucket in enumerate(buckets):
-            buckets[i] = [
-                test
-                for test in bucket
-                if test in all_tests or '__init__.py' in test
-            ]
-
-        self.buckets = buckets
+        self.bins = bins
 
     def rsync_roots(self, gateway):
         """Rsync the set of roots to the node's gateway cwd."""
@@ -120,33 +79,23 @@ class NodeManager:
         start_time = time.perf_counter()
         self.config.hook.pytest_xdist_setupnodes(config=self.config, specs=self.specs)
         self.trace("setting up nodes")
-
-        nodes: List[WorkerController] = []
-        for i, spec in enumerate(self.specs):
-            bucket = self.buckets[i]
-            new_tests_from_bucket = [
-                test
-                for test in bucket
-                if test in self.new_tests
-            ]
-            nodes.append(
-                self.setup_node(
-                    spec,
-                    putevent,
-                    ",".join(self.buckets[i]),
-                    new_tests_from_bucket,
-                )
+        nodes: List[WorkerController] = [
+            self.setup_node(
+                spec,
+                putevent,
+                ",".join(self.buckets[i]),
             )
-
+            for i, spec in enumerate(self.specs)
+        ]
         end_time = time.perf_counter()
         self.log("setup_nodes", end_time - start_time)
         return nodes
 
-    def setup_node(self, spec, putevent, path, new_tests: List[str]) -> "WorkerController":
+    def setup_node(self, spec, putevent, path) -> "WorkerController":
         gw = self.group.makegateway(spec)
         self.config.hook.pytest_xdist_newgateway(gateway=gw)
         self.rsync_roots(gw)
-        node = WorkerController(self, gw, self.config, putevent, path, new_tests)
+        node = WorkerController(self, gw, self.config, putevent, path)
         gw.node = node  # keep the node alive
         node.setup()
         self.trace("started node %r" % node)
@@ -307,14 +256,13 @@ class WorkerController:
         def pytest_xdist_getremotemodule(self):
             return xdist.remote
 
-    def __init__(self, nodemanager, gateway, config, putevent, path, new_tests: List[str]):
+    def __init__(self, nodemanager, gateway, config, putevent, path):
         config.pluginmanager.register(self.RemoteHook())
         self.nodemanager = nodemanager
         self.putevent = putevent
         self.gateway = gateway
         self.config = config
         self.path = path
-        self.new_tests = new_tests
         argv = [i for i in sys.argv]
         del argv[1]
         for path in self.path.split(","):
@@ -363,7 +311,7 @@ class WorkerController:
         for path in self.path.split(","):
             args.insert(0, path)
 
-        self.channel.send((self.workerinput, args, option_dict, change_sys_path, self.new_tests))
+        self.channel.send((self.workerinput, args, option_dict, change_sys_path))
 
         if self.putevent:
             self.channel.setcallback(self.process_from_remote, endmarker=self.ENDMARK)

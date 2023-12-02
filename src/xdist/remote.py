@@ -347,8 +347,7 @@ def setup_config(config, basetemp):
 
 if __name__ == "__channelexec__":
     channel = channel  # type: ignore[name-defined] # noqa: F821
-    workerinput, args, option_dict, change_sys_path, new_tests = channel.receive()  # type: ignore[name-defined]
-    new_tests: List[str]
+    workerinput, args, option_dict, change_sys_path = channel.receive()  # type: ignore[name-defined]
 
     if change_sys_path is None:
         importpath = os.getcwd()
@@ -373,6 +372,5 @@ if __name__ == "__channelexec__":
     config._parser.prog = os.path.basename(workerinput["mainargv"][0])
     config.workerinput = workerinput  # type: ignore[attr-defined]
     config.workeroutput = {}  # type: ignore[attr-defined]
-    config.new_tests = new_tests  # type: ignore[attr-defined]
     interactor = WorkerInteractor(config, channel)  # type: ignore[name-defined]
     config.hook.pytest_cmdline_main(config=config)

@@ -4,6 +4,7 @@ from enum import Enum, auto
 from typing import Sequence
 
 import pytest
+from xdist.bucketing import get_bins_and_new_tests
 
 from xdist.remote import Producer
 from xdist.workermanage import NodeManager
@@ -60,6 +61,8 @@ class DSession:
             self.trdist = TerminalDistReporter(config)
             config.pluginmanager.register(self.trdist, "terminaldistreporter")
 
+        self.bins, self.new_tests = get_bins_and_new_tests()
+
     @property
     def session_finished(self):
         """Return True if the distributed session has finished
@@ -80,7 +83,7 @@ class DSession:
         The nodes are setup to put their events onto self.queue.  As
         soon as nodes start they will emit the worker_workerready event.
         """
-        self.nodemanager = NodeManager(self.config)
+        self.nodemanager = NodeManager(self.config, bins=self.bins)
         nodes = self.nodemanager.setup_nodes(putevent=self.queue.put)
         self._active_nodes.update(nodes)
         self._session = session
@@ -101,10 +104,20 @@ class DSession:
     @pytest.hookimpl(trylast=True)
     def pytest_xdist_make_scheduler(self, config, log):
         dist = config.getvalue("dist")
+        if dist == "loadscope":
+            # We have a special branch here
+            # because this one distribution method
+            # happens to have an extra argument.
+            # :(
+            return LoadScopeScheduling(
+                config,
+                log,
+                new_tests=self.new_tests
+            )
+
         schedulers = {
             "each": EachScheduling,
             "load": LoadScheduling,
-            "loadscope": LoadScopeScheduling,
             "loadfile": LoadFileScheduling,
             "loadgroup": LoadGroupScheduling,
             "worksteal": WorkStealingScheduling,
